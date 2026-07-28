@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 
 from .model import MockProvider
+from .model import GeminiProvider
 from .agent import run_agent
 from .tools import default_tools
 
@@ -29,7 +30,7 @@ def handle_slash(line: str) -> bool:
 
 def run_once(prompt: str, cwd: Path) -> None:
     render_header(cwd)
-    result = run_agent(prompt, MockProvider(), default_tools())
+    result = run_agent(prompt, GeminiProvider(), default_tools())
     for line in result.trace:
         console.print(line)
 

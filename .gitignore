@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Added by Sha Huang
+test_api.py
