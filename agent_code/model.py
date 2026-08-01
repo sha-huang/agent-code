@@ -100,7 +100,7 @@ class GeminiProvider:
         self,
         model: str = "gemini-3.1-flash-lite",
         max_tokens: int = 128,
-        base_url: str | None = None,
+        base_url: str = "https://generativelanguage.googleapis.com",
     ) -> None:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -108,7 +108,10 @@ class GeminiProvider:
         
         self.model = model
         self.max_tokens = max_tokens
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options={"base_url": base_url}
+        )
     
     def complete(
         self,

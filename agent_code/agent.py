@@ -36,7 +36,11 @@ def _gemini_message(response: ModelResponse) -> dict[str, Any]:
     return {"role": "model", "parts": parts}
 
 
-def _tool_result_message(tool_call_id: str, content: Any, is_error: bool = False) -> dict[str, Any]:
+def _tool_result_message(
+    tool_call_id: str,
+    content: Any,
+    is_error: bool = False,
+) -> dict[str, Any]:
     return {
         "role": "tool",
         "parts": [
@@ -53,22 +57,31 @@ def _tool_result_message(tool_call_id: str, content: Any, is_error: bool = False
     }
 
 
-def run_agent(prompt: str, provider: ModelProvider, tools: ToolRegistry) -> AgentResult:
+def run_agent(
+    prompt: str,
+    provider: ModelProvider,
+    tools: ToolRegistry,
+    max_steps: int = 5,
+) -> AgentResult:
+
     messages: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": prompt}]}]
     trace: list[str] = []
 
-    response = provider.complete(messages, tools=tools.list())
-    messages.append(_gemini_message(response))
-
-    for call in response.tool_calls or []:
-        trace.append(f"tool_call: {call.name} {call.arguments}")
-
-        result = tools.run(call)
-        trace.append(f"observation: {result.content}")
-        messages.append(_tool_result_message(result.tool_call_id, result.content, result.is_error))
-
+    for step in range(max_steps):
         response = provider.complete(messages, tools=tools.list())
+        messages.append(_gemini_message(response))
+
+        if not response.tool_calls:
+            final = response.text or ""
+            trace.append(f"final: {final}")
+            return AgentResult(final=final, trace=trace, messages=messages)
+        
+        for call in response.tool_calls:
+            trace.append(f"tool_call: {call.name} {call.arguments}")
+            result = tools.run(call)
+            trace.append(f"observation: {result.content}")
+            messages.append(_tool_result_message(result.tool_call_id, result.content, result.is_error))
     
-    final = response.text or ""
+    final = f"reached max_steps={max_steps}"
     trace.append(f"final: {final}")
     return AgentResult(final=final, trace=trace, messages=messages)
