@@ -58,7 +58,7 @@ def _tool_result_message(
         ]
     }
 
-import pprint
+
 def run_agent(
     prompt: str,
     provider: ModelProvider,
