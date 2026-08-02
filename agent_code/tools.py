@@ -42,12 +42,17 @@ class ToolRegistry:
 
         if tool is None:
             return ToolResult(
+                name=call.name,
                 tool_call_id=call.id,
                 content=f"unknown tool: {call.name}",
                 is_error=True,
             )
         
-        return ToolResult(tool_call_id=call.id, content=tool.run(call.arguments))
+        return ToolResult(
+            name=call.name,
+            tool_call_id=call.id,
+            content=tool.run(call.arguments)
+        )
 
 
 def default_tools() -> ToolRegistry:

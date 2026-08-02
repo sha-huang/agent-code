@@ -37,16 +37,18 @@ def _gemini_message(response: ModelResponse) -> dict[str, Any]:
 
 
 def _tool_result_message(
+    function_name: str,
     tool_call_id: str,
     content: Any,
     is_error: bool = False,
 ) -> dict[str, Any]:
     return {
-        "role": "tool",
+        "role": "user",
         "parts": [
             {
                 "function_response": {
-                    "name": tool_call_id,
+                    "name": function_name,
+                    "id": tool_call_id,
                     "response": {
                         "result": content,
                         "is_error": is_error,
@@ -56,7 +58,7 @@ def _tool_result_message(
         ]
     }
 
-
+import pprint
 def run_agent(
     prompt: str,
     provider: ModelProvider,
@@ -80,7 +82,7 @@ def run_agent(
             trace.append(f"tool_call: {call.name} {call.arguments}")
             result = tools.run(call)
             trace.append(f"observation: {result.content}")
-            messages.append(_tool_result_message(result.tool_call_id, result.content, result.is_error))
+            messages.append(_tool_result_message(result.name, result.tool_call_id, result.content, result.is_error))
     
     final = f"reached max_steps={max_steps}"
     trace.append(f"final: {final}")

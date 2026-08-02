@@ -15,6 +15,7 @@ class ToolCall:
 
 @dataclass
 class ToolResult:
+    name: str
     tool_call_id: str
     content: str
     is_error: bool = False
@@ -98,10 +99,11 @@ def _content_part_to_dict(part: Any) -> dict[str, Any]:
 class GeminiProvider:
     def __init__(
         self,
-        model: str = "gemini-3.1-flash-lite",
-        max_tokens: int = 128,
-        base_url: str = "https://generativelanguage.googleapis.com",
+        model: str,
+        max_tokens: int = 512,
+        base_url: str | None = None,
     ) -> None:
+
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("Please set the API KEY first.")
@@ -162,24 +164,40 @@ class GeminiProvider:
 
 
 class MockProvider:
-    def complete(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[Any] | None = None,
+    ) -> ModelResponse:
         last = messages[-1]
 
         if last["role"] == "user":
-            # text = last["parts"].replace("use echo tool to say", "").strip() or last["parts"]
-            text = last["parts"][0]["text"]
-            return ModelResponse(
-                tool_calls=[
-                    ToolCall(
-                        id="call_echo_1",
-                        name="echo",
-                        arguments={"text": text},
-                    )
-                ],
-                finish_reason="STOP",
-            )
+            user_message = last["parts"][0]
+
+            if "text" in user_message:
+                return ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="call_echo_1",
+                            name="echo",
+                            arguments={"text": user_message["text"]},
+                        )
+                    ],
+                    finish_reason="STOP",
+                )
+            
+            elif "function_response" in user_message:
+                return ModelResponse(text=user_message["function_response"]["response"]["result"])
         
         if last["role"] == "model":
             return ModelResponse(text=f"echo tool returns: ")
         
-        return ModelResponse(text=f"I am only able to demonstrate echo tool")
+        return ModelResponse(text=f"I am Mock Provider, and am only able to demonstrate echo tool")
+
+
+def create_provider(name: str, model: str, base_url: str | None = None) -> ModelProvider:
+    if name == "gemini":
+        return GeminiProvider(model=model, base_url=base_url)
+    if name == "mock":
+        return MockProvider()
+    raise ValueError(f"unknown provider: {name}")
