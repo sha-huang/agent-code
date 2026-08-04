@@ -20,6 +20,7 @@ def render_header(
     model: str,
     base_url: str | None,
 ) -> None:
+    
     console.print("[bold]Agent Code[/bold]")
     console.print(f"[dim]cwd: {cwd}[/dim]")
 
@@ -50,9 +51,10 @@ def run_once(
     base_url: str | None,
     max_steps: int,
 ) -> None:
+    
     render_header(cwd, provider_name, model, base_url)
     provider = create_provider(provider_name, model, base_url)
-    result = run_agent(prompt, provider, default_tools(), max_steps=max_steps)
+    result = run_agent(prompt, provider, default_tools(), max_steps=max_steps, cwd=cwd)
     for line in result.trace:
         console.print(line)
 
@@ -66,6 +68,7 @@ def main_command(
     base_url: str | None = typer.Option(None, "--base-url"),
     max_steps: int = typer.Option(5, "--max-steps"),
 ) -> None:
+    
     # Resolve cwd on start once only
     resolved_cwd = cwd.resolve()
     text = prompt.strip()

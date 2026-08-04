@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .model import ModelProvider, ModelResponse
-from .tools import ToolRegistry
+from .tools import ToolContext, ToolRegistry
 
 
 @dataclass
@@ -64,8 +66,10 @@ def run_agent(
     provider: ModelProvider,
     tools: ToolRegistry,
     max_steps: int = 5,
+    cwd: Path | None = None,
 ) -> AgentResult:
 
+    ctx = ToolContext(cwd=cwd or Path.cwd())
     messages: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": prompt}]}]
     trace: list[str] = []
 
@@ -80,7 +84,7 @@ def run_agent(
         
         for call in response.tool_calls:
             trace.append(f"tool_call: {call.name} {call.arguments}")
-            result = tools.run(call)
+            result = tools.run(call, ctx)
             trace.append(f"observation: {result.content}")
             messages.append(_tool_result_message(result.name, result.tool_call_id, result.content, result.is_error))
     
