@@ -66,7 +66,7 @@ def main_command(
     provider: str = typer.Option("gemini", "--provider"),
     model: str = typer.Option("gemini-3.1-flash-lite", "--model"),
     base_url: str | None = typer.Option(None, "--base-url"),
-    max_steps: int = typer.Option(5, "--max-steps"),
+    max_steps: int = typer.Option(10, "--max-steps"),
 ) -> None:
     
     # Resolve cwd on start once only

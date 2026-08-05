@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from pathlib import Path
-
 from datetime import datetime
+import re
+import shutil
+import subprocess
 
 from .fs_safety import (
     ReadFileState,
@@ -84,6 +86,133 @@ def list_files(args: dict[str, Any], ctx: ToolContext) -> str:
         entries.append(f"{child.name}/" if child.is_dir() else child.name)
 
     return truncate_output("\n".join(entries) or "(empty)")
+
+
+def glob(args: dict[str, Any], ctx: ToolContext) -> str:
+    pattern = args.get("pattern", "")
+    if not pattern:
+        return "error: missing require argument 'pattern'"
+
+    matches: list[Path] = []
+    try:
+        for path in ctx.cwd.rglob(pattern):
+            rel = path.relative_to(ctx.cwd)
+            if should_skip(rel, ctx.skip_policy):
+                continue
+            matches.append(path)
+    except NotImplementedError as exc:
+        return f"error: {exc}"
+
+    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    matches = matches[:200]
+
+    lines = [str(p.relative_to(ctx.cwd)) for p in matches]
+    return truncate_output("\n".join(lines) or "(no matches)")
+
+
+def grep(args: dict[str, Any], ctx: ToolContext) -> str:
+    pattern = args.get("pattern", "")
+    if not pattern:
+        return "error: missing required argument 'pattern'"
+
+    path_arg = args.get("path", ".")
+    glob_arg = args.get("glob")
+    ignore_case = bool(args.get("ignore_case", False))
+
+    try:
+        base = resolve_in_cwd(ctx.cwd, path_arg)
+    except ValueError as exc:
+        return f"error: {exc}"
+
+    if shutil.which("rg"):
+        return _grep_ripgrep(pattern, base, glob_arg, ignore_case, ctx)
+    return _grep_python(pattern, base, glob_arg, ignore_case, ctx)
+
+
+def _grep_ripgrep(
+    pattern: str,
+    base: Path,
+    glob_arg: str | None,
+    ignore_case: bool,
+    ctx: ToolContext,
+) -> str:
+
+    args: list[str] = ["rg", "--line-number", "--no-heading", "--max-columns", "500"]
+    if ignore_case:
+        args.append("-i")
+    for name in ctx.skip_policy.skip_dirs:
+        args.extend(["--glob", f"!{name}/**"])
+    if glob_arg:
+        args.extend(["--glob", glob_arg])
+    args.append(pattern)
+    args.append(str(base))
+
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return f"error: {exc}"
+
+    if proc.returncode not in (0, 1):
+        return f"error: rg: {proc.stderr.strip() or proc.returncode}"
+    return truncate_output(_relativize_rg_output(proc.stdout, ctx.cwd) or "(no matches)")
+
+
+def _relativize_rg_output(stdout: str, cwd: Path) -> str:
+    cwd_prefix = f"{cwd}/"
+    lines = [
+        line[len(cwd_prefix):] if line.startswith(cwd_prefix) else line
+        for line in stdout.splitlines()
+    ]
+    return "\n".join(lines).strip()
+
+
+def _grep_python(
+    pattern: str,
+    base: Path,
+    glob_arg: str | None,
+    ignore_case: bool,
+    ctx: ToolContext,
+) -> str:
+
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error as exc:
+        return f"error: invalid regex: {exc}"
+
+    if base.is_file():
+        candidates: list[Path] = [base]
+    else:
+        candidates = []
+        try:
+            for path in base.rglob(glob_arg or "*"):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(ctx.cwd)
+                if should_skip(rel, ctx.skip_policy):
+                    continue
+                candidates.append(path)
+        except NotImplementedError as exc:
+            return f"error: {exc}"
+
+    hits: list[str] = []
+    for path in candidates:
+        try:
+            ensure_text_file(path)
+        except ValueError:
+            continue
+
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        rel = path.relative_to(ctx.cwd)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if regex.search(line):
+                hits.append(f"{rel}:{lineno}:{line}")
+
+    return truncate_output("\n".join(hits) or "(no matches)")
 
 
 class ToolRegistry:
@@ -168,6 +297,47 @@ def default_tools() -> ToolRegistry:
                     },
                 },
                 "required": [],
+            },
+        )
+    )
+
+    registry.register(
+        Tool(
+            name="glob",
+            description="Find files by glob pattern, e.g. '**/*.py'.",
+            run=glob,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Glob pattern."},
+                },
+                "required": ["pattern"],
+            },
+        )
+    )
+
+    registry.register(
+        Tool(
+            name="grep",
+            description="Search file contents with a regular expression (ripgrep if available).",
+            run=grep,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Regular expression."},
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path; defaults to '.'.",
+                        "default": ".",
+                    },
+                    "glob": {"type": "string", "description": "Optional file glob filter, e.g. '*.py'."},
+                    "ignore_case": {
+                        "type": "boolean",
+                        "description": "Case-insensitive match.",
+                        "default": False,
+                    },
+                },
+                "required": ["pattern"],
             },
         )
     )

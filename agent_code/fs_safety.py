@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import pathspec
 
 
 # Allowed text file extension / suffix
@@ -11,11 +12,14 @@ TEXT_SUFFIXES = {
     ".jsx", ".html", ".css", ".sql", ".lock", ".gitignore",
 }
 
+
 # Max size of file
 MAX_READ_BYTES = 256 * 1024
 
+
 # Max length of tool observations
 DEFAULT_MAX_CHARS = 8000
+
 
 DEFAULT_SKIP_DIRS = frozenset({
     ".git", ".venv", "venv", "node_modules", "dist", "build",
@@ -26,10 +30,11 @@ DEFAULT_SKIP_DIRS = frozenset({
 @dataclass
 class SkipPolicy:
     skip_dirs: frozenset[str] = DEFAULT_SKIP_DIRS
+    gitignore: pathspec.Pathspec | None = None
 
     @classmethod
-    def default(cls) -> "SkipPolicy":
-        return cls()
+    def default(cls, gitignore: pathspec.Pathspec | None = None) -> "SkipPolicy":
+        return cls(gitignore=gitignore)
 
 
 @dataclass
@@ -53,12 +58,14 @@ def resolve_in_cwd(cwd: Path, user_path: str) -> Path:
         raise ValueError(f"path escapes cwd: {user_path}") from exc
     return candidate
 
+
 def ensure_text_file(path: Path) -> None:
     if path.suffix.lower() in TEXT_SUFFIXES:
         return
     with path.open("rb") as f:
         if b"\x00" in f.read(1024):
             raise ValueError(f"binary file: {path.name}")
+
 
 def ensure_within_size(path: Path, max_bytes: int = MAX_READ_BYTES) -> None:
     size = path.stat().st_size
@@ -68,10 +75,26 @@ def ensure_within_size(path: Path, max_bytes: int = MAX_READ_BYTES) -> None:
             f"read a smaller file or use grep instead"
         )
 
+
 def should_skip(rel_path: Path, policy: SkipPolicy) -> bool:
-    return any(part in policy.skip_dirs for part in rel_path.parts)
+    if any(part in policy.skip_dirs for part in rel_path.parts):
+        return True
+    if policy.gitignore is not None and policy.gitignore.match_file(str(rel_path)):
+        return True
+    return False
+
 
 def truncate_output(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + f"\n[truncated {len(text) - max_chars} chars]"
+
+
+def load_gitignore(cwd: Path) -> pathspec.Pathspec | None:
+    gitignore = cwd / ".gitignore"
+
+    if not gitignore.exists():
+        return None
+
+    lines = gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
+    return pathspec.PathSpec.from_lines("gitwildmatch", lines)

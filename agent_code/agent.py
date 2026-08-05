@@ -6,6 +6,7 @@ from typing import Any
 
 from .model import ModelProvider, ModelResponse
 from .tools import ToolContext, ToolRegistry
+from .fs_safety import SkipPolicy, load_gitignore
 
 
 @dataclass
@@ -38,38 +39,44 @@ def _gemini_message(response: ModelResponse) -> dict[str, Any]:
     return {"role": "model", "parts": parts}
 
 
-def _tool_result_message(
-    function_name: str,
-    tool_call_id: str,
-    content: Any,
-    is_error: bool = False,
-) -> dict[str, Any]:
-    return {
-        "role": "user",
-        "parts": [
-            {
-                "function_response": {
-                    "name": function_name,
-                    "id": tool_call_id,
-                    "response": {
-                        "result": content,
-                        "is_error": is_error,
-                    }
-                }
-            }
-        ]
-    }
+# No longer used
+# def _tool_result_message(
+#     function_name: str,
+#     tool_call_id: str,
+#     content: Any,
+#     is_error: bool = False,
+# ) -> dict[str, Any]:
+#     return {
+#         "role": "user",
+#         "parts": [
+#             {
+#                 "function_response": {
+#                     "name": function_name,
+#                     "id": tool_call_id,
+#                     "response": {
+#                         "result": content,
+#                         "is_error": is_error,
+#                     }
+#                 }
+#             }
+#         ]
+#     }
 
 
 def run_agent(
     prompt: str,
     provider: ModelProvider,
     tools: ToolRegistry,
-    max_steps: int = 5,
+    max_steps: int,
     cwd: Path | None = None,
 ) -> AgentResult:
 
-    ctx = ToolContext(cwd=cwd or Path.cwd())
+    resolved_cwd = cwd or Path.cwd()
+    ctx = ToolContext(
+        cwd=resolved_cwd,
+        skip_policy=SkipPolicy.default(gitignore=load_gitignore(resolved_cwd)),
+    )
+
     messages: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": prompt}]}]
     trace: list[str] = []
 
@@ -81,12 +88,33 @@ def run_agent(
             final = response.text or ""
             trace.append(f"final: {final}")
             return AgentResult(final=final, trace=trace, messages=messages)
-        
+
+        tool_result_blocks: list[dict[str, Any]] = []
         for call in response.tool_calls:
             trace.append(f"tool_call: {call.name} {call.arguments}")
             result = tools.run(call, ctx)
             trace.append(f"observation: {result.content}")
-            messages.append(_tool_result_message(result.name, result.tool_call_id, result.content, result.is_error))
+            tool_result_blocks.append(
+                {
+                    "function_response": {
+                        "name": result.name,
+                        "id": result.tool_call_id,
+                        "response": {
+                            "result": result.content,
+                            "is_error": result.is_error,
+                        },
+                    }
+                }
+            )
+
+        messages.append({"role": "user", "parts": tool_result_blocks})
+
+        # No longer used
+        # for call in response.tool_calls:
+        #     trace.append(f"tool_call: {call.name} {call.arguments}")
+        #     result = tools.run(call, ctx)
+        #     trace.append(f"observation: {result.content}")
+        #     messages.append(_tool_result_message(result.name, result.tool_call_id, result.content, result.is_error))
     
     final = f"reached max_steps={max_steps}"
     trace.append(f"final: {final}")
