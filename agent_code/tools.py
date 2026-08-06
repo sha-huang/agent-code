@@ -215,6 +215,41 @@ def _grep_python(
     return truncate_output("\n".join(hits) or "(no matches)")
 
 
+def project_tree(args: dict[str, Any], ctx: ToolContext) -> str:
+    max_depth = int(args.get("max_depth", 3))
+    max_nodes = 200
+    lines: list[str] = [f"{ctx.cwd.name}/"]
+    nodes = 0
+
+    def walk(directory: Path, depth: int) -> None:
+        nonlocal nodes
+        if depth > max_depth:
+            return
+
+        children = sorted(
+            (
+                c for c in directory.iterdir()
+                if not should_skip(c.relative_to(ctx.cwd), ctx.skip_policy)
+            ),
+            key=lambda p: (not p.is_dir(), p.name),
+        )
+
+        for child in children:
+            if nodes >= max_nodes:
+                if nodes == max_nodes:
+                    lines.append("  " * depth + "...[truncated]")
+                    nodes += 1
+                return
+            suffix = "/" if child.is_dir() else ""
+            lines.append("  " * depth + child.name + suffix)
+            nodes += 1
+            if child.is_dir():
+                walk(child, depth + 1)
+
+    walk(ctx.cwd, 1)
+    return truncate_output("\n".join(lines))
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
@@ -338,6 +373,25 @@ def default_tools() -> ToolRegistry:
                     },
                 },
                 "required": ["pattern"],
+            },
+        )
+    )
+
+    registry.register(
+        Tool(
+            name="project_tree",
+            description="Show the project directory tree from cwd.",
+            run=project_tree,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Maximum recursion depth.",
+                        "default": 3,
+                    },
+                },
+                "required": [],
             },
         )
     )
