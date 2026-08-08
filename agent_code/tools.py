@@ -7,6 +7,9 @@ from datetime import datetime
 import re
 import shutil
 import subprocess
+from urllib.parse import parse_qs, unquote, urlparse
+import html2text
+import httpx
 
 from .fs_safety import (
     ReadFileState,
@@ -250,6 +253,67 @@ def project_tree(args: dict[str, Any], ctx: ToolContext) -> str:
     return truncate_output("\n".join(lines))
 
 
+WEB_USER_AGENT = "Mozilla/5.0 (compatible; AgentCodeBot/1.0; +https://github.com/sha-huang/agent-code)"
+WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+WEB_FETCH_MAX_CHARS = 20_000
+WEB_URL_MAX_LENGTH = 2000
+WEB_FETCH_TIMEOUT_S = 30.0
+WEB_SEARCH_TIMEOUT_S = 15.0
+
+
+def _validate_url(url: str) -> None:
+    if len(url) > WEB_URL_MAX_LENGTH:
+        raise ValueError(f"url too long: {len(url)} > {WEB_URL_MAX_LENGTH}")
+    
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"unsupported scheme: {parsed.scheme or '(none)'}")
+    if parsed.username or parsed.password:
+        raise ValueError("url with credentials is not allowed")
+    if not parsed.hostname or "." not in parsed.hostname:
+        raise ValueError(f"invalid hostname: {parsed.hostname}")
+
+
+def _html_to_markdown(html: str) -> str:
+    converter = html2text.HTML2Text()
+    converter.body_width = 0
+    converter.ignore_images = True
+    converter.ignore_emphasis = False
+    return converter.handle(html).strip()
+
+
+def web_fetch(args: dict[str, Any], ctx: ToolContext) -> str:
+    url = args.get("url", "")
+    if not url:
+        return "error: missing required argument 'url'"
+
+    try:
+        _validate_url(url)
+    except ValueError as exc:
+        return f"error: {exc}"
+
+    headers = {"User-Agent": WEB_USER_AGENT, "Accept": "text/html, text/*;q=0.9, */*;q=0.5"}
+    try:
+        with httpx.Client(timeout=WEB_FETCH_TIMEOUT_S, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        return f"error: {exc}"
+
+    if len(resp.content) > WEB_FETCH_MAX_BYTES:
+        return f"error: response too large: {len(resp.content)} > {WEB_FETCH_MAX_BYTES}"
+
+    content_type = resp.headers.get("content-type", "").lower()
+    if "text/html" in content_type or "application/xhtml" in content_type:
+        body = _html_to_markdown(resp.text)
+    elif content_type.startswith("text/") or "json" in content_type or "xml" in content_type:
+        body = resp.text
+    else:
+        return f"error: unsupported content-type: {content_type or '(none)'}"
+
+    return truncate_output(body, max_chars=WEB_FETCH_MAX_CHARS)
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
@@ -392,6 +456,21 @@ def default_tools() -> ToolRegistry:
                     },
                 },
                 "required": [],
+            },
+        )
+    )
+
+    registry.register(
+        Tool(
+            name="web_fetch",
+            description="Fetch a URL and return its content as markdown (or raw text).",
+            run=web_fetch,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Absolute http(s) URL."},
+                },
+                "required": ["url"],
             },
         )
     )
