@@ -253,7 +253,7 @@ def project_tree(args: dict[str, Any], ctx: ToolContext) -> str:
     return truncate_output("\n".join(lines))
 
 
-WEB_USER_AGENT = "Mozilla/5.0 (compatible; AgentCodeBot/1.0; +https://github.com/sha-huang/agent-code)"
+WEB_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64)"
 WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 WEB_FETCH_MAX_CHARS = 20_000
 WEB_URL_MAX_LENGTH = 2000
@@ -313,6 +313,69 @@ def web_fetch(args: dict[str, Any], ctx: ToolContext) -> str:
 
     return truncate_output(body, max_chars=WEB_FETCH_MAX_CHARS)
 
+
+def _unwrap_ddg_url(href: str) -> str:
+    if "/l/" not in href:
+        return href
+    
+    if href.startswith("//"):
+        parsed = urlparse(f"https:{href}")
+    elif href.startswith("/"):
+        parsed = urlparse(f"https://duckduckgo.com{href}")
+    else:
+        parsed = urlparse(href)
+
+    params = parse_qs(parsed.query)
+    if "uddg" in params:
+        return unquote(params["uddg"][0])
+    return href
+
+
+def _duckduckgo_search(query: str, max_results: int) -> list[dict[str, str]]:
+    headers = {"User-Agent": WEB_USER_AGENT}
+    with httpx.Client(timeout=WEB_SEARCH_TIMEOUT_S, follow_redirects=True) as client:
+        resp = client.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers=headers,
+        )
+        resp.raise_for_status()
+
+    pattern = re.compile(
+        r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        re.DOTALL,
+    )
+
+    results: list[dict[str, str]] = []
+    for href, title_html in pattern.findall(resp.text):
+        title = re.sub(r"<[^>]+>", "", title_html).strip()
+        url = _unwrap_ddg_url(href)
+
+        if not title or not url:
+            continue
+        results.append({"title": title, "url": url})
+        if len(results) >= max_results:
+            break
+    return results
+
+
+def web_search(args: dict[str, Any], ctx: ToolContext) -> str:
+    query = args.get("query", "")
+    if not query:
+        return "error: missing required argument 'query'"
+    
+    max_results = max(1, min(int(args.get("max_results", 5)), 10))
+
+    try:
+        results = _duckduckgo_search(query, max_results=max_results)
+    except httpx.HTTPError as exc:
+        return f"error: {exc}"
+
+    if not results:
+        return "(no results)"
+    lines = [f"- {r['title']}\n  {r['url']}" for r in results]
+    return truncate_output("\n".join(lines))
+    
 
 class ToolRegistry:
     def __init__(self) -> None:
@@ -471,6 +534,26 @@ def default_tools() -> ToolRegistry:
                     "url": {"type": "string", "description": "Absolute http(s) URL."},
                 },
                 "required": ["url"],
+            },
+        )
+    )
+
+    registry.register(
+        Tool(
+            name="web_search",
+            description="Search the web (DuckDuckGo) and return top results.",
+            run=web_search,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query."},
+                    "max_results": {
+                        "type": "integer",
+                        "description": "How many results to return (1-10).",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
             },
         )
     )

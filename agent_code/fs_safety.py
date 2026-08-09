@@ -30,10 +30,10 @@ DEFAULT_SKIP_DIRS = frozenset({
 @dataclass
 class SkipPolicy:
     skip_dirs: frozenset[str] = DEFAULT_SKIP_DIRS
-    gitignore: pathspec.Pathspec | None = None
+    gitignore: pathspec.PathSpec | None = None
 
     @classmethod
-    def default(cls, gitignore: pathspec.Pathspec | None = None) -> "SkipPolicy":
+    def default(cls, gitignore: pathspec.PathSpec | None = None) -> "SkipPolicy":
         return cls(gitignore=gitignore)
 
 
@@ -90,11 +90,14 @@ def truncate_output(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     return text[:max_chars] + f"\n[truncated {len(text) - max_chars} chars]"
 
 
-def load_gitignore(cwd: Path) -> pathspec.Pathspec | None:
+def load_gitignore(cwd: Path) -> pathspec.PathSpec | None:
     gitignore = cwd / ".gitignore"
 
     if not gitignore.exists():
         return None
 
-    lines = gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
-    return pathspec.PathSpec.from_lines("gitwildmatch", lines)
+    lines = [
+        line.strip()
+        for line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
+    ]
+    return pathspec.PathSpec.from_lines("gitignore", lines)
