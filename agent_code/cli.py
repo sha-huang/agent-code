@@ -54,9 +54,7 @@ def run_once(
     
     render_header(cwd, provider_name, model, base_url)
     provider = create_provider(provider_name, model, base_url)
-    result = run_agent(prompt, provider, default_tools(), max_steps=max_steps, cwd=cwd)
-    for line in result.trace:
-        console.print(line)
+    run_agent(prompt, provider, default_tools(), max_steps=max_steps, cwd=cwd)
 
 
 @app.callback(invoke_without_command=True)
