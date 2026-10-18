@@ -44,30 +44,6 @@ def _gemini_message(response: ModelResponse) -> dict[str, Any]:
     return {"role": "model", "parts": parts}
 
 
-# No longer used
-# def _tool_result_message(
-#     function_name: str,
-#     tool_call_id: str,
-#     content: Any,
-#     is_error: bool = False,
-# ) -> dict[str, Any]:
-#     return {
-#         "role": "user",
-#         "parts": [
-#             {
-#                 "function_response": {
-#                     "name": function_name,
-#                     "id": tool_call_id,
-#                     "response": {
-#                         "result": content,
-#                         "is_error": is_error,
-#                     }
-#                 }
-#             }
-#         ]
-#     }
-
-
 def run_agent(
     prompt: str,
     provider: ModelProvider,
@@ -208,13 +184,6 @@ def run_agent(
             )
 
         messages.append({"role": "user", "parts": tool_result_blocks})
-
-        # No longer used
-        # for call in response.tool_calls:
-        #     trace.append(f"tool_call: {call.name} {call.arguments}")
-        #     result = tools.run(call, ctx)
-        #     trace.append(f"observation: {result.content}")
-        #     messages.append(_tool_result_message(result.name, result.tool_call_id, result.content, result.is_error))
     
     final = f"reached max_steps={max_steps}"
     emit(f"final: {final}")

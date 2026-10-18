@@ -16,6 +16,6 @@ CLI flags:
 | CLI flag | Details | Default value |
 | -- | -- | -- |
 | `--provider` | API provider, use `mock` for testing | `gemini` |
-| `--model` | Model by the provider | `gemini-3.1-flash-lite` |
+| `--model` | Model by the provider | `gemini-3.5-flash-lite` |
 | `--base-url` | URL of LLM server | `None` |
 | `--max-step` | Max number of steps in a multi-step agent loop | `10` |

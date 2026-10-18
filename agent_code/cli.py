@@ -62,7 +62,7 @@ def main_command(
     prompt: str = typer.Argument("", help="Prompt to send to the agent."),
     cwd: Path = typer.Option(Path.cwd(), "--cwd", "-C"),
     provider: str = typer.Option("gemini", "--provider"),
-    model: str = typer.Option("gemini-3.1-flash-lite", "--model"),
+    model: str = typer.Option("gemini-3.5-flash-lite", "--model"),
     base_url: str | None = typer.Option(None, "--base-url"),
     max_steps: int = typer.Option(10, "--max-steps"),
 ) -> None:
