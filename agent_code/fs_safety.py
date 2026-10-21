@@ -101,3 +101,58 @@ def load_gitignore(cwd: Path) -> pathspec.PathSpec | None:
         for line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
     ]
     return pathspec.PathSpec.from_lines("gitignore", lines)
+
+
+def ensure_read_before_edit(state: ReadFileState, path: Path) -> str | None:
+    # check if the file has been read during this session
+    if path not in state.entries:
+        return (
+            f"error: file has not been read yet. "
+            f"Read {path.name} first before edit."
+        )
+    return None
+
+
+def check_mtime_conflict(state: ReadFileState, path: Path) -> str | None:
+    # check if the file was modified after read
+    entry = state.entries.get(path)
+    if entry is None:
+        return None
+
+    read_mtime_ns, _ = entry
+    try:
+        current_mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+    if current_mtime_ns > read_mtime_ns:
+        return (
+            f"error: file was modified after read. "
+            f"Read {path.name} again before editing."
+        )
+    return None
+
+
+def apply_single_replace(
+        content: str, old: str, new: str, replace_all: bool
+) -> tuple[str | None, str | None]:
+    # look up old in content and replace with new
+    if old == "":
+        return None, "error: old_string must not be empty."
+
+    if old == new:
+        return None, "error: old_string and new_string are exactly the same."
+
+    count = content.count(old)
+    if count == 0:
+        return None, "error: string to replace not found in file."
+    if count > 1 and not replace_all:
+        return None, (
+            f"error: found {count} matches for old_string. "
+            "Use replace_all=True to replace all, or make old_string more specific."
+        )
+
+    if replace_all:
+        return content.replace(old, new), None
+    else:
+        return content.replace(old, new, 1), None

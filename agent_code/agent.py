@@ -7,7 +7,14 @@ from rich.console import Console
 
 from .model import ModelProvider, ModelResponse, ToolResult
 from .tools import ToolContext, ToolRegistry
-from .fs_safety import SkipPolicy, load_gitignore, resolve_in_cwd
+from .fs_safety import (
+    SkipPolicy,
+    apply_single_replace,
+    check_mtime_conflict,
+    ensure_read_before_edit,
+    load_gitignore,
+    resolve_in_cwd,
+)
 from .diff_ui import confirm_edit, render_diff
 
 
@@ -109,16 +116,34 @@ def run_agent(
 
                 # if the file exists, ensure it has been read
                 validation_error: str | None = None
-                if call.name == "file_write" and path.exists():
-                    if path not in ctx.read_state.entries:
+                if call.name == "file_write":
+                    if path.exists():
                         validation_error = (
-                            f"error: file has not been read yet. "
-                            f"Read {path_str} first before editing."
+                            ensure_read_before_edit(ctx.read_state, path)
+                            or check_mtime_conflict(ctx.read_state, path)
+                        )
+
+                else:
+                    if not path.exists():
+                        validation_error = f"error: file does not exist: {path_str}"
+                    else:
+                        validation_error = (
+                            ensure_read_before_edit(ctx.read_state, path)
+                            or check_mtime_conflict(ctx.read_state, path)
                         )
 
                 new_content: str | None = None
                 if call.name == "file_write":
                     new_content = call.arguments.get("content", "")
+                elif call.name == "file_edit" and validation_error is None:
+                    new_content, replace_err = apply_single_replace(
+                        old_content,
+                        call.arguments.get("old_string", ""),
+                        call.arguments.get("new_string", ""),
+                        bool(call.arguments.get("replace_all", False)),
+                    )
+                    if replace_err is not None:
+                        validation_error = replace_err
 
                 if validation_error is not None:
                     result = ToolResult(
