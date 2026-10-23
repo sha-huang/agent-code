@@ -22,6 +22,8 @@ from .fs_safety import (
     truncate_output,
 )
 
+from .file_history import backup
+
 from .model import ToolCall, ToolResult
 
 
@@ -390,6 +392,13 @@ def file_write(args: dict[str, Any], ctx: ToolContext) -> str:
     except ValueError as exc:
         return f"error: {exc}"
 
+    if path.exists():
+        try:
+            old = path.read_text(encoding="utf-8")
+            backup(ctx.cwd, path, old)
+        except Exception:
+            pass
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     ctx.read_state.record(path, content)
@@ -414,6 +423,8 @@ def file_edit(args: dict[str, Any], ctx: ToolContext) -> str:
         content = path.read_text(encoding="utf-8")
     except (FileNotFoundError, IsADirectoryError) as exc:
         return f"error: {exc}"
+
+    backup(ctx.cwd, path, content)
 
     new_content, err = apply_single_replace(content, old_string, new_string, replace_all)
     if err:
